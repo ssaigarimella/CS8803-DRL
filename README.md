@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # safe-control-gym
 
 Physics-based CartPole and Quadrotor [Gym](https://gym.openai.com) environments (using [PyBullet](https://pybullet.org/wordpress/)) with symbolic *a priori* dynamics (using [CasADi](https://web.casadi.org)) for **learning-based control**, and model-free and model-based **reinforcement learning** (RL).
@@ -230,3 +231,6 @@ pre-commit run --all  # Run the hooks on all files
 
 -----
 > University of Toronto's [Dynamic Systems Lab](https://github.com/utiasDSL) / [Vector Institute for Artificial Intelligence](https://github.com/VectorInstitute)
+=======
+# CS8803-DRL
+>>>>>>> c3128ed1da488819cce9b1341ec1e1bf8e586211
