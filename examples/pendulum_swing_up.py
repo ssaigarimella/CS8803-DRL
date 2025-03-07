@@ -17,7 +17,7 @@ np.random.seed(0)
 
 class myPendulum():
     def __init__(self):
-        self.env = gym.make('Pendulum-v0').env
+        self.env = gym.make('Pendulum-v1').env
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
 
