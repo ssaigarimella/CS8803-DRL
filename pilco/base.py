@@ -130,7 +130,7 @@ def learn(mu0, S0, dynmodel, policy, plant, cost, H):
     num_iters = 0
     args = (mu0, S0, dynmodel, policy, plant, cost, H)
     # options = {'maxiter': 150, 'disp': True}
-    options = {'maxiter': 50, 'disp': True}
+    options = {'maxiter': 10, 'disp': True}
 
     def callback(p):
         # L = np.asscalar(value(p, *args))
