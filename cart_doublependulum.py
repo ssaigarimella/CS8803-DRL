@@ -13,234 +13,193 @@ from pilco.gp import GPModel
 from pilco.loss import Loss
 from pilco.util import gaussian_trig, gaussian_sin, fill_mat
 
-# ---------------------------
-# Dynamics for Cart with Double Pendulum
-# ---------------------------
+
 def dynamics(z, t, u):
-    # Ensure u is a scalar rather than an array:
-    if np.ndim(u) > 0:
-        u = u[0]
+    g = 9.82
+    L1 = 0.6  # length of first pendulum
+    L2 = 0.6  # length of second pendulum
+    m1 = 0.5  # mass of first pendulum
+    m2 = 0.5  # mass of second pendulum
+    mc = 1.0  # mass of the cart
+    b = 0.1   # damping coefficient
 
-    g  = 9.82
-    M  = 1.0    # cart mass
-    m1 = 0.5    # mass of first pendulum
-    m2 = 0.5    # mass of second pendulum
-    L1 = 0.6    # length of first pendulum
-    L2 = 0.6    # length of second pendulum
-    b  = 0.1    # friction coefficient for cart
-    
-    # Unpack state
-    x, x_dot, theta1_dot, theta1, theta2_dot, theta2 = z
+    # state variables
+    x, x_dot, theta1, theta1_dot, theta2, theta2_dot = z
 
-    # Construct the mass matrix
-    M11 = M + m1 + m2
-    M12 = (m1 + m2) * L1 * cos(theta1)
-    M13 = m2 * L2 * cos(theta1 + theta2)
-    M21 = M12
-    M22 = (m1 + m2) * L1**2
-    M23 = m2 * L1 * L2 * cos(theta2)
-    M31 = M13
-    M32 = M23
-    M33 = m2 * L2**2
+    sin_theta1, cos_theta1 = sin(theta1), cos(theta1)
+    sin_theta2, cos_theta2 = sin(theta2), cos(theta2)
 
-    M_mat = np.array([[M11, M12, M13],
-                      [M21, M22, M23],
-                      [M31, M32, M33]])
-    
-    # Compute the right-hand side terms
-    RHS1 = u - b*x_dot + (m1+m2)*L1*sin(theta1)*theta1_dot**2 \
-           + m2*L2*sin(theta1+theta2)*(theta1_dot+theta2_dot)**2
-    RHS2 = - (m1+m2)*g*L1*sin(theta1)
-    RHS3 = - m2*g*L2*sin(theta1+theta2)
-    RHS = np.array([RHS1, RHS2, RHS3])
-    
-    # Solve for accelerations
-    q_ddot = np.linalg.solve(M_mat, RHS)
-    
-    dzdt = np.zeros(6)
-    dzdt[0] = x_dot
-    dzdt[1] = q_ddot[0]
-    dzdt[2] = q_ddot[1]      # theta1_ddot
-    dzdt[3] = theta1_dot     # derivative of theta1
-    dzdt[4] = q_ddot[2]      # theta2_ddot
-    dzdt[5] = theta2_dot     # derivative of theta2
-    return dzdt
+    # intermediate terms used in equations of motion
+    d1 = mc + m1 + m2
+    d2 = m1 * L1 * cos_theta1 + m2 * (L1 * cos_theta1 + L2 * cos_theta2)
+    d3 = (4/3) * m1 * L1**2 + m2 * (L1**2 + L2**2 + 2 * L1 * L2 * cos(theta2))
+    d4 = m2 * (L2**2 + L1 * L2 * cos(theta2))
 
-# ---------------------------
-# Loss Function (adapted from cart-pole)
-# ---------------------------
-def loss_cp(self, m, s):
-    D0 = np.size(s, 1)  # base state dimension (here 6)
-    D1 = D0 + 2 * len(self.angle)  # after trig augmentation (here 6 + 4 = 10)
+    # compute determinant for inverse of matrix later
+    detM = d1 * (d3 - d4**2 / d1) - d2**2
+    invDet = 1 / detM
+
+    # compute forces acting on system
+    f1 = -m1 * L1 * sin_theta1 * theta1_dot**2 - m2 * (L1 * sin_theta1 * theta1_dot**2 + L2 * sin_theta2 * theta2_dot**2)
+    f2 = (m1 + m2) * g * sin_theta1 + m2 * g * sin_theta2
+    f3 = -m2 * L2 * sin_theta2 * theta2_dot**2
+
+    # compute state derivates
+    dxdt = np.zeros_like(z)
+    dxdt[0] = x_dot
+    dxdt[1] = invDet * (d3 * (u - b * x_dot) - d2 * f2 - d4 * f3)
+    dxdt[2] = theta1_dot
+    dxdt[3] = invDet * (d4 * (u - b * x_dot) - d2 * f2 - d1 * f3)
+    dxdt[4] = theta2_dot
+    dxdt[5] = invDet * (-d2 * (u - b * x_dot) + d1 * f2 + d4 * f3)
+
+    return dxdt
+
+
+def loss_dp(self, m, s):
+    """defines the loss function used to evaluate the policy's performance"""
+
+    D0 = np.size(s, 1)
+    D1 = D0 + 2 * len(self.angle)
     M = m
     S = s
 
+    # compute quadratic weight matrix for cost function
     ell = self.p
     Q = np.dot(np.vstack([1, ell]), np.array([[1, ell]]))
     Q = fill_mat(Q, np.zeros((D1, D1)), [0, D0], [0, D0])
     Q = fill_mat(ell**2, Q, [D0 + 1], [D0 + 1])
 
-    # The target state (raw) is assumed to be of dimension 6.
-    target_trig, _ , _ = gaussian_trig(self.target, 0 * s, self.angle)
-    target = np.hstack([self.target, target_trig])
-    
+    # compute the target state using trigonometric transformation
+    target = gaussian_trig(self.target, 0 * s, self.angle)[0]
+    target = np.hstack([self.target, target])
     i = np.arange(D0)
     m, s, c = gaussian_trig(M, S, self.angle)
     q = np.dot(S[np.ix_(i, i)], c)
     M = np.hstack([M, m])
     S = np.vstack([np.hstack([S, q]), np.hstack([q.T, s])])
 
+    # iterate through different weightings and accumulate loss
     w = self.width if hasattr(self, "width") else [1]
-    L_cost = np.array([0.])
-    S2 = 0.
+    L = np.array([0])
+    S2 = np.array(0)
     for i in range(len(w)):
         self.z = target
         self.W = Q / w[i]**2
         r, s2, c = self.loss_sat(M, S)
-        L_cost = L_cost + r
+        L = L + r
         S2 = S2 + s2
 
-    return L_cost / len(w)
+    return L / len(w)
 
-# ---------------------------
-# Visualization: Animate the rollout
-# ---------------------------
+
 def draw_rollout(latent):
-    # In our state:
-    # latent[:,0] = x (cart position)
-    # latent[:,3] = theta1 (first pendulum angle)
-    # latent[:,5] = theta2 (second pendulum angle)
-    # We use the same link lengths as in dynamics:
-    L1 = 0.6
-    L2 = 0.6
-
+    """for visualizing rollout of the double pendulum"""
     x0 = latent[:, 0]
-    y0 = np.zeros_like(x0)  # cart is on the horizontal axis
-
-    # First pendulum bob (attached to cart):
-    x1 = x0 + L1 * sin(latent[:, 3])
-    y1 = -L1 * cos(latent[:, 3])
-    
-    # Second pendulum bob (attached to first bob):
-    x2 = x1 + L2 * sin(latent[:, 3] + latent[:, 5])
-    y2 = y1 - L2 * cos(latent[:, 3] + latent[:, 5])
+    y0 = np.zeros_like(x0)
+    x1 = x0 + 0.6 * sin(latent[:, 2])
+    y1 = -0.6 * cos(latent[:, 2])
+    x2 = x1 + 0.6 * sin(latent[:, 4])
+    y2 = y1 - 0.6 * cos(latent[:, 4])
 
     fig = plt.figure()
-    ax = fig.add_subplot(111, autoscale_on=False, xlim=(-3, 3), ylim=(-3, 3))
+    ax = fig.add_subplot(111, autoscale_on=False, xlim=(-2, 2), ylim=(-2, 2))
     ax.set_aspect("equal")
     ax.grid()
 
-    # We draw two lines: one from cart to bob1 and one from bob1 to bob2.
-    line1, = ax.plot([], [], 'o-', lw=2)
-    line2, = ax.plot([], [], 'o-', lw=2)
+    line, = ax.plot([], [], 'o-', lw=2)
     time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
 
-    dt = 0.1  # time step (must match plant.dt)
-    H = math.ceil(4 / dt)  # horizon (assuming T = 4 seconds)
-
     def animate(i):
-        # Update the first link (cart to first bob)
-        linex1 = [x0[i], x1[i]]
-        liney1 = [y0[i], y1[i]]
-        line1.set_data(linex1, liney1)
-        # Update the second link (first bob to second bob)
-        linex2 = [x1[i], x2[i]]
-        liney2 = [y1[i], y2[i]]
-        line2.set_data(linex2, liney2)
+        linex = [x0[i], x1[i], x2[i]]
+        liney = [y0[i], y1[i], y2[i]]
+        line.set_data(linex, liney)
         trail = math.floor(i / (H + 1))
         time_text.set_text("trail %d, time = %.1fs" % (trail, i * dt))
-        return line1, line2, time_text
+        return line, time_text
 
-    interval = math.ceil(1000 * dt)
+    interval = math.ceil(T / dt)
     ani = animation.FuncAnimation(
         fig, animate, np.arange(len(latent)), interval=interval, blit=True)
-    ani.save('cart_double_pendulum_test.mp4', fps=20)
+    ani.save('double_pendulum_test.mp4', fps=20)
     plt.show()
 
-# ---------------------------
-# PILCO Setup (with updated state indices)
-# ---------------------------
-# For the base state, we now have 6 dimensions.
+# define state indices used in the system
+odei = [0, 1, 2, 3, 4, 5] #ODE input indices
+dyno = [0, 1, 2, 3, 4, 5]       #observed state variables for dynamics
+angi = [2, 4]       #angular indices
+dyni = [0, 1, 2, 3, 4, 5, 6, 7]     #dynamic input indices
+poli = [0, 1, 2, 3, 4, 5]       #policy input indices
+difi = [0, 1, 2, 3, 4, 5]       #difference indices
+
+# simulation parameters
 dt = 0.1
-T  = 4
-H  = math.ceil(T / dt)
-mu0 = np.array([0, 0, 0, 0, 0, 0])  # initial state: cart at 0; pendulums hanging down (theta=0)
-S0  = np.square(np.diag([0.1]*6))
-
-# Augment initial state distribution with trigonometric features for the angles.
-# plant.angi are the indices of the angles in the raw state: [3, 5]
-m_aug, S_aug, c = gaussian_trig(mu0, S0, [3, 5])
-mu0_aug = np.hstack([mu0, m_aug])
-S0_aug = np.vstack([np.hstack([S0, c]), np.hstack([c.T, S_aug])])
-
-# The number of PILCO rollouts to simulate:
-N = 1
+T = 4
+H = math.ceil(T / dt)
+mu0 = np.array([0, 0, 0, 0, 0, 0])
+S0 = np.square(np.diag([0.1] * 6))
+N=1
 nc = 10
 
+# initialize the plant model of the double pendulum on cart
 plant = Empty()
 plant.dynamics = dynamics
 plant.prop = propagate
-# Noise in the dynamics (adjusted to 6 dimensions)
-plant.noise = np.square(np.diag([1e-2]*6))
+plant.noise = np.square(np.diag([1e-2] * 6))
 plant.dt = dt
+plant.odei = odei
+plant.angi = angi
+plant.poli = poli
+plant.dyno = dyno
+plant.dyni = dyni
+plant.difi = difi
 
-# Set index arrays:
-# The “raw” state is 6-dimensional. We will augment the state with trigonometric transforms of the angles.
-plant.odei  = [0, 1, 2, 3, 4, 5]
-plant.dyno  = [0, 1, 2, 3, 4, 5]
-# indices of angles in the raw state (theta1 and theta2)
-plant.angi  = [3, 5]
-# When constructing the GP inputs, we drop the raw angles and use the trig features instead.
-# The raw state has 6 dimensions; after gaussian_trig we append 2*len(angi)=4 extra dimensions,
-# so the total becomes 10. We select indices (for example) [0,1,2,4,6,7,8,9]
-plant.dyni  = [0, 1, 2, 4, 6, 7, 8, 9]
-plant.poli  = [0, 1, 2, 4, 6, 7, 8, 9]
-plant.difi  = [0, 1, 2, 3, 4, 5]
-
-# Set up the policy (a GP model) using the augmented initial state
+# initialize the policy model
+m, s, c = gaussian_trig(mu0, S0, angi)
+m = np.hstack([mu0, m])
+c = np.dot(S0, c)
+s = np.vstack([np.hstack([S0, c]), np.hstack([c.T, s])])
 policy = GPModel()
 policy.max_u = [10]
 policy.p = {
-    'inputs': multivariate_normal(mu0_aug[plant.poli],
-                                    S0_aug[np.ix_(plant.poli, plant.poli)], nc),
-    'hyp': log(np.array([[1, 1, 1, 0.7, 0.7, 1, 1, 1, 0.01]])),
-    'targets': 0.1 * randn(nc, len(policy.max_u))
+    'inputs': multivariate_normal(m[poli], s[np.ix_(poli, poli)], nc),
+    'targets': 0.1 * randn(nc, len(policy.max_u)),
+    'hyp': log([1] * 8 + [1, 0.01])
 }
 
+# policy = GPModel()
+# policy.max_u = [10]
+# policy.p = {
+#     'inputs': multivariate_normal(mu0[poli], S0[np.ix_(poli, poli)], 10),
+#     'targets': 0.1 * randn(10, len(policy.max_u)),
+#     'hyp': log([1] * 8 + [1, 0.01])
+# }
 
-# Set up the cost. For the double pendulum, we define the target as:
-#   [x, x_dot, theta1_dot, theta1, theta2_dot, theta2] = [0, 0, 0, pi, 0, 0]
-Loss.fcn = loss_cp
+# define cost function
+Loss.fcn = loss_dp
 cost = Loss()
 cost.p = 0.5
 cost.gamma = 1
 cost.width = [0.25]
 cost.angle = plant.angi
-cost.target = np.array([0, 0, 0, np.pi, 0, 0])
+cost.target = np.array([0, 0, np.pi, 0, np.pi, 0])
 
-# Run one rollout with the initial state distribution.
+# perform rollout and train the model
 start = multivariate_normal(mu0, S0)
 x, y, L, latent = rollout(start, policy, plant, cost, H)
-
-# Set the policy function (using PILCO’s concat)
 policy.fcn = lambda m, s: concat(congp, gaussian_sin, policy, m, s)
 
-# (For demonstration we run one PILCO training iteration.)
 for i in range(N):
     dynmodel = GPModel()
     dynmodel.fcn = dynmodel.gp0
     train(dynmodel, plant, policy, x, y)
-    # result = learn(mu0, S0, dynmodel, policy, plant, cost, H)
-    result = learn(mu0_aug, S0_aug, dynmodel, policy, plant, cost, H)
+    result = learn(mu0, S0, dynmodel, policy, plant, cost, H)
 
     start = multivariate_normal(mu0, S0)
     x_, y_, L, latent_ = rollout(start, policy, plant, cost, H)
     x = np.vstack([x, x_])
     y = np.vstack([y, y_])
     latent = np.vstack([latent, latent_])
-    print("Test loss: %s" % np.sum(L))
-
-with open('cart_double_pendulum.json', 'w') as save_file:
-    save_file.write(str(result))
+    print("Test loss: %s", np.sum(L))
 
 draw_rollout(latent)
