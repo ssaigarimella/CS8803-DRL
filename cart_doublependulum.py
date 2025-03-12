@@ -1,5 +1,4 @@
 import math
-
 import autograd.numpy as np
 import matplotlib.pyplot as plt
 from autograd.numpy import sin, cos, log
@@ -166,14 +165,6 @@ policy.p = {
     'targets': 0.1 * randn(nc, len(policy.max_u)),
     'hyp': log([1] * 8 + [1, 0.01])
 }
-
-# policy = GPModel()
-# policy.max_u = [10]
-# policy.p = {
-#     'inputs': multivariate_normal(mu0[poli], S0[np.ix_(poli, poli)], 10),
-#     'targets': 0.1 * randn(10, len(policy.max_u)),
-#     'hyp': log([1] * 8 + [1, 0.01])
-# }
 
 # define cost function
 Loss.fcn = loss_dp
