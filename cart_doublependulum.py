@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+
+"""
+"""
+
 import math
 import autograd.numpy as np
 import matplotlib.pyplot as plt
