@@ -152,3 +152,10 @@ dmypy.json
 # acados
 acados_ocp_nlp.json
 *c_generated_code
+
+
+# videos and jsons
+cart_pole_test1.mp4
+cart_pole.json
+double_pendulum_test.mp4
+cart_pole.mp4
