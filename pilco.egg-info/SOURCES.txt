@@ -1,0 +1,14 @@
+LICENSE
+README.md
+setup.py
+pilco/__init__.py
+pilco/controllers.py
+pilco/rewards.py
+pilco.egg-info/PKG-INFO
+pilco.egg-info/SOURCES.txt
+pilco.egg-info/dependency_links.txt
+pilco.egg-info/requires.txt
+pilco.egg-info/top_level.txt
+pilco/models/__init__.py
+pilco/models/mgpr.py
+pilco/models/pilco.py

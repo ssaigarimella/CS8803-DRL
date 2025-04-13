@@ -1,0 +1,13 @@
+Metadata-Version: 2.1
+Name: pilco
+Version: 0.1
+Summary: PILCO with GPyTorch backend for probabilistic model-based reinforcement learning
+Home-page: UNKNOWN
+Author: nrontsis
+License: UNKNOWN
+Platform: UNKNOWN
+Requires-Python: >=3.7
+License-File: LICENSE
+
+UNKNOWN
+

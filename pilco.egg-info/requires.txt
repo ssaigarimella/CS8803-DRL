@@ -1,0 +1,6 @@
+gpytorch
+gymnasium[mujoco]>=0.29.1
+matplotlib
+numpy
+scipy
+torch

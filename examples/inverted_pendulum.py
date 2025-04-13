@@ -1,5 +1,5 @@
-import gym
-import pybullet_envs
+import gymnasium as gym
+# import pybullet_envs
 import torch
 import matplotlib.pyplot as plt
 from pilco.rewards import ExponentialReward
@@ -8,28 +8,31 @@ from pilco.models import PILCO
 from utils import rollout, policy
 import numpy as np
 import sys
-sys.path.append("/home/song3/WorkSpace/PILCO-gpytorch")
+sys.path.append("/home/alicechan/gt/cs8803drl/PILCO-gpytorch")
 np.random.seed(0)
 
 
 class myPendulum():
-    def __init__(self):
-        self.env = gym.make('InvertedPendulumBulletEnv-v0').env
-        # self.env = gym.make('Pendulum-v0').env
+    def __init__(self, render_mode="human"):
+        self.env = gym.make('InvertedPendulum-v5', render_mode=render_mode, reset_noise_scale=0.1, frame_skip=5)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
+        self.reset_called = False
+        self.render_mode = render_mode
 
     def step(self, action):
-        return self.env.step(action)
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        done = terminated or truncated
+        return obs, reward, done, info
 
     def reset(self):
-        self.env.reset()
-        state = np.array([0.0, 0.0, 0.99699654, -0.0774461, 0.0])
-        self.env.state = state
-        self.env.last_u = None
-        return self.env.state
+        obs, _ = self.env.reset()
+        self.reset_called = True
+        return obs
 
     def render(self):
+        if not self.reset_called:
+            self.reset()
         self.env.render()
 
 
@@ -51,10 +54,14 @@ controller = LinearController(state_dim=state_dim, control_dim=control_dim)
 
 # pilco = PILCO(X, Y, controller1=controller1, horizon=40)
 # Example of user provided reward function, setting a custom target state
-R = ExponentialReward(state_dim=state_dim,
-                      t=np.array([0.0, 0.0, 1.0, 0.0, 0.0]))
-m_init = np.reshape([0.0, 0.0, 0.99699654, -0.0774461, 0.0], (1, 5))
-S_init = np.diag([0.01, 0.01, 0.01, 0.01, 0.01])
+# R = ExponentialReward(state_dim=state_dim,
+#                       t=np.array([0.0, 0.0, 1.0, 0.0, 0.0]))
+R = ExponentialReward(
+    state_dim=state_dim,
+    t=np.array([0.0, 0.0, 1.0, 0.0])  # ← now matches the 4D state space
+)
+m_init = np.reshape(env.reset(), (1, state_dim))
+S_init = np.diag([0.01] * state_dim)
 m_init = torch.from_numpy(m_init).float().cuda()
 S_init = torch.from_numpy(S_init).float().cuda()
 
@@ -95,10 +102,15 @@ for rollouts in range(20):
     #     plt.fill_between(range(len(Y_new[:,i])),lower[i].detach().cpu().numpy(),upper[i].detach().cpu().numpy(),alpha=0.3)
     #     plt.show()
 
-    print("One iteration done")
+    # print("One iteration done")
+    print(f"Iteration {rollouts+1} done")
+
     import pdb
     pdb.set_trace()
     # print("No of ops:", len(tf.get_default_graph().get_operations()))
+    
     # Update dataset
     X = np.vstack((X, X_new)); Y = np.vstack((Y, Y_new))
     pilco.mgpr.set_XY(X, Y)
+
+    env.env.close()
