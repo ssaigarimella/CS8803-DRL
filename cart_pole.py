@@ -147,12 +147,12 @@ poli = [0, 1, 2, 4, 5]  # Inputs to policy
 difi = [0, 1, 2, 3]     # Indices for delta learning
 
 dt = 0.1
-T = 4
+T = 15
 H = math.ceil(T / dt)   # Horizon
 mu0 = np.array([0, 0, 0, 0])        # Initial mean
 S0 = np.square(np.diag([0.1, 0.1, 0.1, 0.1]))       # Initial covariance
 
-N =2    # Number of iterations
+N =3    # Number of iterations
 nc = 10  # Controller basis function count
 
 # Create plant model
