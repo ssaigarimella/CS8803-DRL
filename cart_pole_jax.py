@@ -166,7 +166,6 @@ cost.target = jnp.array([0.0, 0.0, 0.0, jnp.pi])
 start = random.multivariate_normal(key, mu0, S0)
 x, y, L, latent, key = rollout(start, policy, plant, cost, H, key)
 
-
 policy.fcn = lambda m, s: concat(congp, gaussian_sin, policy, m, s)
 
 for i in range(N):
@@ -176,7 +175,7 @@ for i in range(N):
     result = learn(mu0, S0, dynmodel, policy, plant, cost, H)
 
     start = random.multivariate_normal(key, mu0, S0)
-    x_, y_, L, latent_ = rollout(start, policy, plant, cost, H)
+    x_, y_, L, latent_, key = rollout(start, policy, plant, cost, H, key)
     x = jnp.vstack([x, x_])
     y = jnp.vstack([y, y_])
     latent = jnp.vstack([latent, latent_])

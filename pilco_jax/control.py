@@ -1,38 +1,39 @@
-import autograd.numpy as np
-from autograd.numpy import log
-
-from pilco.util import fill_mat
-
+import jax.numpy as jnp
+from jax.numpy import log
+from pilco_jax.util import fill_mat
 
 def congp(policy, m, s):
-    policy.hyp = np.atleast_2d(policy.p['hyp'])
-    policy.inputs = np.atleast_2d(policy.p['inputs'])
-    policy.targets = np.atleast_2d(policy.p['targets'])
+    policy.hyp = jnp.atleast_2d(policy.p['hyp'])
+    policy.inputs = jnp.atleast_2d(policy.p['inputs'])
+    policy.targets = jnp.atleast_2d(policy.p['targets'])
 
-    T = np.zeros_like(policy.hyp)
-    T[:, (-2, -1)] = np.repeat([[log(1), log(.01)]], np.size(policy.hyp, 0), 0)
-    policy.hyp = (T == 0) * policy.hyp + T
+    T = jnp.zeros_like(policy.hyp)
+    log_bounds = jnp.array([log(1.0), log(0.01)])
+    tiled = jnp.tile(log_bounds, (policy.hyp.shape[0], 1))
+    T = T.at[:, -2:].set(tiled)
+    mask = jnp.array(T == 0, dtype=bool)
+    policy.hyp = jnp.where(mask, policy.hyp, T)
 
     return policy.gp2(m, s)
 
-
 def concat(con, sat, policy, m, s):
-    max_u = policy.max_u
+    max_u = jnp.array(policy.max_u)
     E = len(max_u)
     D = len(m)
 
     F = D + E
-    i, j = np.arange(D), np.arange(D, F)
+    i = jnp.arange(D)
+    j = jnp.arange(D, F)
     M = m
-    S = fill_mat(s, np.zeros((F, F)))
+    S = fill_mat(s, jnp.zeros((F, F)))
 
     m, s, c = con(policy, m, s)
-    M = np.hstack([M, m])
+    M = jnp.hstack([M, m])
     S = fill_mat(s, S, j, j)
-    q = np.matmul(S[np.ix_(i, i)], c)
+    q = S[jnp.ix_(i, i)] @ c
     S = fill_mat(q, S, i, j)
     S = fill_mat(q.T, S, j, i)
 
     M, S, R = sat(M, S, j, max_u)
-    C = np.hstack([np.eye(D), c]) @ R
+    C = jnp.hstack([jnp.eye(D), c]) @ R
     return M, S, C

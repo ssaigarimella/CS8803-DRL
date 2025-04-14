@@ -136,7 +136,9 @@ def value(p, mu0, S0, dynmodel, policy, plant, cost, H):
     for t in range(H):
         M, S = plant.prop(M, S, plant, dynmodel, policy)
         L = L + cost.gamma**t * cost.fcn(M, S)
-    return L
+    # return L
+    return L.reshape(())
+
 
 def learn(mu0, S0, dynmodel, policy, plant, cost, H):
     global num_iters
@@ -145,7 +147,7 @@ def learn(mu0, S0, dynmodel, policy, plant, cost, H):
     options = {'maxiter': 10, 'disp': True}
 
     def callback(p):
-        L = jnp.ndarray.item(value(p, *args))
+        L = float(value(p, *args))
         global num_iters
         num_iters += 1
         print("linesearch %d: %s" % (num_iters, str(L)))

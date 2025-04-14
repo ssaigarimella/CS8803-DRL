@@ -1,25 +1,27 @@
-import autograd.numpy as np
-from autograd.numpy import exp, sqrt
-from autograd.numpy.linalg import solve, det
+import jax.numpy as jnp
+from jax.numpy import exp, sqrt
+from jax.numpy.linalg import solve, det
 
 
 class Loss:
     def loss_sat(self, m, s):
-        D = len(m)
+        D = m.shape[-1] if len(m.shape) > 1 else m.shape[0]
 
-        W = self.W if hasattr(self, 'W') else np.eye(D)
-        z = self.z if hasattr(self, 'z') else np.zeros(D)
-        m, z = np.atleast_2d(m), np.atleast_2d(z)
+        W = self.W if hasattr(self, 'W') else jnp.eye(D)
+        z = self.z if hasattr(self, 'z') else jnp.zeros(D)
+        m = jnp.atleast_2d(m)
+        z = jnp.atleast_2d(z)
 
-        sW = np.dot(s, W)
-        ispW = solve((np.eye(D) + sW).T, W.T).T
-        L = -exp(-(m - z) @ ispW @ (m - z).T / 2) / sqrt(det(np.eye(D) + sW))
+        sW = s @ W
+        ispW = solve((jnp.eye(D) + sW).T, W.T).T
+        diff = m - z
+        L = -exp(-0.5 * (diff @ ispW @ diff.T)) / sqrt(det(jnp.eye(D) + sW))
 
-        i2spW = solve((np.eye(D) + 2 * sW).T, W.T).T
-        r2 = exp(-(m - z) @ i2spW @ (m - z).T) / sqrt(det(np.eye(D) + 2 * sW))
+        i2spW = solve((jnp.eye(D) + 2 * sW).T, W.T).T
+        r2 = exp(-1.0 * (diff @ i2spW @ diff.T)) / sqrt(det(jnp.eye(D) + 2 * sW))
         S = r2 - L**2
 
-        t = np.dot(W, z.T) - ispW @ (np.dot(sW, z.T) + m.T)
+        t = jnp.dot(W, z.T) - ispW @ (jnp.dot(sW, z.T) + m.T)
         C = L * t
 
-        return L + 1, S, C
+        return L + 1.0, S, C
