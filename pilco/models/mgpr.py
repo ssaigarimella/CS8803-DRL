@@ -15,11 +15,12 @@ class ExactGPModel(gpytorch.models.ExactGP):
         self.mean_module = gpytorch.means.ConstantMean(batch_shape=torch.Size([self.num_out]))
         self.covar_module = gpytorch.kernels.ScaleKernel(
                 gpytorch.kernels.RBFKernel(ard_num_dims=train_x.shape[2],
-                    # lengthscale_prior = gpytorch.priors.GammaPrior(1,10),
+                    lengthscale_prior = gpytorch.priors.GammaPrior(1,10),
                     batch_shape=torch.Size([self.num_out])),
                 batch_shape=torch.Size([self.num_out]),
-                outputscale_constraint = gpytorch.constraints.Interval(0.001,0.001001),
-                # outputscale_prior = gpytorch.priors.GammaPrior(1.5,2),
+                # outputscale_constraint = gpytorch.constraints.Interval(0.001,0.001001),
+                outputscale_constraint = gpytorch.constraints.Positive(),
+                outputscale_prior=gpytorch.priors.GammaPrior(2.0, 2.0),
                 )
 
     def forward(self, x):
@@ -56,10 +57,19 @@ class MGPR(torch.nn.Module):
         # initialize likelihood and model
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood(
                 # noise_prior=gpytorch.priors.GammaPrior(2,1.5),
+                noise_constraint=gpytorch.constraints.Interval(1e-5, 0.1),
                 batch_shape=torch.Size([Y.shape[0]]))
         self.model = ExactGPModel(X, Y, self.likelihood)
         self.likelihood.cuda()
         self.model.cuda()
+        with torch.no_grad():
+            self.model.covar_module.base_kernel.lengthscale = torch.ones_like(
+                self.model.covar_module.base_kernel.lengthscale
+            )
+            # Initialize noise to small values
+            self.model.likelihood.noise = torch.ones_like(
+                self.model.likelihood.noise
+            ) * 0.01
 
     def set_XY(self,X,Y):
         self.Y = torch.from_numpy(Y).float()
@@ -90,6 +100,9 @@ class MGPR(torch.nn.Module):
         optimizer = torch.optim.Adam([
             {'params': self.model.parameters()},  # Includes GaussianLikelihood parameters
             ], lr=self.lr)
+        
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95) # learning rate decrease over time
+
         # "Loss" for GPs - the marginal log likelihood
         for i in range(training_iter):
             # Zero gradients from previous iteration
@@ -101,6 +114,8 @@ class MGPR(torch.nn.Module):
             loss.backward()
             print('Iter %d/%d - Loss: %.3f' % (i + 1, training_iter, loss.item()))
             optimizer.step()
+            if (i + 1) % 20 == 0:  # Every 20 iterations
+                scheduler.step()
 
 
 
@@ -148,14 +163,9 @@ class MGPR(torch.nn.Module):
 
         K = self.K(self.X)
         batched_eye = torch.eye(self.X.shape[1]).repeat(self.Y.shape[0],1,1).float().cuda()
-        # L = psd_safe_cholesky(K + self.model.likelihood.noise[:,None]*batched_eye)
-        # iK = torch.cholesky_solve(batched_eye, L)
-        #work-around solution without cholesky_solve
-        iK, _ = torch.solve(batched_eye, K + self.model.likelihood.noise[:,None]*batched_eye)
+        iK = torch.linalg.solve(K + self.model.likelihood.noise[:, None] * batched_eye, batched_eye)
         Y_ = self.Y[:,:,None]
-        # beta = torch.cholesky_solve(Y_, L)[:,:,0]
-        #work-around solution without cholesky_solve
-        beta, _ = torch.solve(Y_, K + self.model.likelihood.noise[:,None]*batched_eye)
+        beta = torch.linalg.solve(K + self.model.likelihood.noise[:, None] * batched_eye, Y_)
         beta = beta[:,:,0]
 
         return iK, beta
@@ -183,7 +193,7 @@ class MGPR(torch.nn.Module):
 
         # Redefine iN as in^T and t --> t^T
         # B is symmetric so its the same
-        t,_ = torch.solve(torch.transpose(iN,dim0=1,dim1=2), B)
+        t = torch.linalg.solve(B, torch.transpose(iN, dim0=1, dim1=2))
         t = torch.transpose(t, dim0=1,dim1=2)
 
         lb = torch.exp(-torch.sum(iN * t, -1)/2) * beta
@@ -205,7 +215,7 @@ class MGPR(torch.nn.Module):
         # TODO: change this block according to the PR of tensorflow. Maybe move it into a function?
         X = inp[None, :, :, :]/torch.pow(self.model.covar_module.base_kernel.lengthscale.squeeze(1)[:, None, None, :],2)
         X2 = -inp[:, None, :, :]/torch.pow(self.model.covar_module.base_kernel.lengthscale.squeeze(1)[None, :, None, :],2)
-        q_x, _ = torch.solve(s, R)
+        q_x = torch.linalg.solve(R, s)
         Q = q_x/2
         Xs = torch.sum(X @ Q * X, -1)
         X2s = torch.sum(X2 @ Q * X2, -1)
@@ -357,7 +367,8 @@ class MGPR(torch.nn.Module):
 
     def centralized_input(self, m):
         if self.cuda == True:
-            m = torch.tensor(m).float().cuda()
+            # m = torch.tensor(m).float().cuda()
+            m = m.clone().detach().float().cuda() if isinstance(m, torch.Tensor) else torch.tensor(m, dtype=torch.float32).cuda()
         return self.X - m
 
     def K(self,X1,X2=None):

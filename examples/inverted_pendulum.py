@@ -39,8 +39,15 @@ class myPendulum():
 env = myPendulum()
 # env = gym.make('CartPole-v0')
 # Initial random rollouts to generate a dataset
-X, Y = rollout(env=env, pilco=None, random=True, timesteps=100)
-for i in range(1, 10):
+# X, Y = rollout(env=env, pilco=None, random=True, timesteps=100)
+'''
+increase SUBS: increase robustness, reduce aliasing and get smoother trajectories.
+'''
+X, Y = rollout(env=env, pilco=None, random=True, timesteps=100, render=False, SUBS=3)
+'''
+change the range to higher number for longer training
+'''
+for i in range(1, 60):
     X_, Y_ = rollout(env=env, pilco=None, random=True,  timesteps=100)
     X = np.vstack((X, X_))
     Y = np.vstack((Y, Y_))
@@ -113,4 +120,9 @@ for rollouts in range(20):
     X = np.vstack((X, X_new)); Y = np.vstack((Y, Y_new))
     pilco.mgpr.set_XY(X, Y)
 
-    env.env.close()
+# Save the trained model
+model_save_path = "saved_pilco_model.pt"
+torch.save(pilco.state_dict(), model_save_path)
+print(f"Saved PILCO model to: {model_save_path}")
+
+env.env.close()

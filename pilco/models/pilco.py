@@ -61,6 +61,15 @@ class PILCO(torch.nn.Module):
         print('---Variances---\n',variance)
         print('---Noises---\n',noise)
 
+    def validate_model(self, X_val, Y_val):
+        """
+        Validate the GP models on held-out data
+        """
+        pred = self.mgpr.predict_y(X_val)
+        mse = torch.mean((pred.mean.t() - torch.tensor(Y_val).float().cuda())**2)
+        print(f"Validation MSE: {mse.item():.4f}")
+        return mse.item()
+
     def optimize_policy(self, maxiter=12, restarts=1):
         '''
         Optimize controller's parameter's
@@ -73,8 +82,11 @@ class PILCO(torch.nn.Module):
                 ], lr=5e-1)
 
         start = time.time()
-        m = torch.tensor(self.m_init).float().cuda()
-        s = torch.tensor(self.S_init).float().cuda()
+        # m = torch.tensor(self.m_init).float().cuda()
+        # s = torch.tensor(self.S_init).float().cuda()
+
+        m = self.m_init.clone().detach()
+        s = self.S_init.clone().detach()
         current_reward = self.compute_reward()
         current_params = self.controller.state_dict()
         reward = torch.zeros(1).float().cuda()
