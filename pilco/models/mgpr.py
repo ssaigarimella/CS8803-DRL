@@ -7,6 +7,7 @@ import os
 import matplotlib.pyplot as plt
 from filterpy.kalman import unscented_transform, MerweScaledSigmaPoints
 # torch.set_default_dtype(torch.float32)
+
 # We will use the simplest form of GP model, exact inference
 class ExactGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
@@ -95,7 +96,6 @@ class MGPR(torch.nn.Module):
 
         mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
 
-
         # Use the adam optimizer
         optimizer = torch.optim.Adam([
             {'params': self.model.parameters()},  # Includes GaussianLikelihood parameters
@@ -109,6 +109,7 @@ class MGPR(torch.nn.Module):
             optimizer.zero_grad()
             # Output from model
             output = self.model(self.X)
+            # output = self.model(train_x) # make sure we are training on 'training inputs'
              # Calc loss and backprop gradients
             loss = -mll(output, self.Y).sum()
             loss.backward()
@@ -116,7 +117,6 @@ class MGPR(torch.nn.Module):
             optimizer.step()
             if (i + 1) % 20 == 0:  # Every 20 iterations
                 scheduler.step()
-
 
 
     def _generate_sigma_points(self,n,x,P,alpha=0.1,beta=2.0,kappa=3):
@@ -151,7 +151,7 @@ class MGPR(torch.nn.Module):
 
     def calculate_factorizations(self):
         '''
-                K = self.K(self.X)
+        K = self.K(self.X)
         batched_eye = tf.eye(tf.shape(self.X)[0], batch_shape=[self.num_outputs], dtype=float_type)
         L = tf.cholesky(K + self.noise[:, None, None]*batched_eye)
         iK = tf.cholesky_solve(L, batched_eye)
@@ -159,7 +159,7 @@ class MGPR(torch.nn.Module):
         # Why do we transpose Y? Maybe we need to change the definition of self.Y() or beta?
         beta = tf.cholesky_solve(L, Y_)[:, :, 0]
         return iK, beta
-                '''
+        '''
 
         K = self.K(self.X)
         batched_eye = torch.eye(self.X.shape[1]).repeat(self.Y.shape[0],1,1).float().cuda()

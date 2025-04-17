@@ -7,21 +7,13 @@ from pilco.models import PILCO
 from utils import rollout, policy
 import numpy as np
 import sys
-import time
 sys.path.append("/home/alicechan/gt/cs8803drl/PILCO-gpytorch")
 np.random.seed(0)
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    print(f"Training on GPU: {torch.cuda.get_device_name(0)}")
-    print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-else:
-    device = torch.device("cpu")
-    print("CUDA not available. Training on CPU.")
 
 class myPendulum():
     def __init__(self, render_mode="human"):
-        self.env = gym.make('InvertedPendulum-v5', render_mode=render_mode, reset_noise_scale=0.1, frame_skip=5)
+        self.env = gym.make('InvertedDoublePendulum-v5', render_mode=render_mode, reset_noise_scale=0.1, frame_skip=5)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
         self.reset_called = False
@@ -42,8 +34,6 @@ class myPendulum():
             self.reset()
         self.env.render()
 
-    def close(self):
-        self.env.close()
 
 env = myPendulum()
 # env = gym.make('CartPole-v0')
@@ -56,7 +46,7 @@ X, Y = rollout(env=env, pilco=None, random=True, timesteps=100, render=False, SU
 '''
 change the range to higher number for longer training
 '''
-for i in range(1, 80):
+for i in range(1, 60):
     X_, Y_ = rollout(env=env, pilco=None, random=True,  timesteps=100)
     X = np.vstack((X, X_))
     Y = np.vstack((Y, Y_))
@@ -64,17 +54,19 @@ for i in range(1, 80):
 
 # states: dot_posistion [-1, 1], dot_velocity[-inf,inf], sin_theta[-1,1], cos_theta[-1,1], theta_velocity[-inf,inf]
 state_dim = Y.shape[1]
+print("State dim:", state_dim)
 control_dim = X.shape[1] - state_dim
 # controller1 = RbfController(state_dim=state_dim, control_dim=control_dim, num_basis_functions=5)
 controller = LinearController(state_dim=state_dim, control_dim=control_dim)
 
 # pilco = PILCO(X, Y, controller1=controller1, horizon=40)
 # Example of user provided reward function, setting a custom target state
-# R = ExponentialReward(state_dim=state_dim,
-#                       t=np.array([0.0, 0.0, 1.0, 0.0, 0.0]))
 R = ExponentialReward(
     state_dim=state_dim,
-    t=np.array([0.0, 0.0, 0.0, 0.0]) # x, dx, theta, d_theta
+    t = np.array([0.0, 0.0,   # x, sin(θ1)
+                  0.0, 1.0,   # sin(θ2), cos(θ1)
+                  1.0, 0.0,   # cos(θ2), dx
+                  0.0, 0.0, 0.0])  # dθ1, dθ2, constraint force x              
 )
 m_init = np.reshape(env.reset(), (1, state_dim))
 S_init = np.diag([0.01] * state_dim)
@@ -89,14 +81,7 @@ pilco = PILCO(X, Y, controller=controller, horizon=40,
 # pilco.controller.b.trainable = False
 T = 30
 
-# Lists to store data for one final plot intead
-all_m_p = []
-all_actual = []
-
-# start the timer
-start_time = time.time()
-
-for rollouts in range(3):
+for rollouts in range(20):
     pilco.optimize_models()
     pilco.optimize_policy()
 
@@ -110,12 +95,12 @@ for rollouts in range(3):
         m_p[h,:], S_p[h,:,:] = m_h[0,:].detach().cpu().numpy(), S_h[:,:].detach().cpu().numpy()
 	
 
-    # for i in range(state_dim):    
-    #     plt.plot(range(T-1), m_p[0:T-1, i], X_new[1:T, i]) # can't use Y_new because it stores differences (Dx)
-    #     plt.fill_between(range(T-1),
-    #             m_p[0:T-1, i] - 2*np.sqrt(S_p[0:T-1, i, i]),
-    #             m_p[0:T-1, i] + 2*np.sqrt(S_p[0:T-1, i, i]), alpha=0.2)
-    #     plt.show()
+    for i in range(state_dim):    
+        plt.plot(range(T-1), m_p[0:T-1, i], X_new[1:T, i]) # can't use Y_new because it stores differences (Dx)
+        plt.fill_between(range(T-1),
+                m_p[0:T-1, i] - 2*np.sqrt(S_p[0:T-1, i, i]),
+                m_p[0:T-1, i] + 2*np.sqrt(S_p[0:T-1, i, i]), alpha=0.2)
+        plt.show()
 
     # pred_outputs = pilco.mgpr.predict_y(X_new)
     # for i in range(Y.shape[1]):
@@ -125,16 +110,13 @@ for rollouts in range(3):
     #     plt.fill_between(range(len(Y_new[:,i])),lower[i].detach().cpu().numpy(),upper[i].detach().cpu().numpy(),alpha=0.3)
     #     plt.show()
 
-    all_m_p.append(m_p.copy())
-    all_actual.append(X_new[1:T, :].copy())
-
+    # print("One iteration done")
     print("=======================================")
     print(f"Iteration {rollouts+1} done")
     print("=======================================")
 
-    # for debugging
-    # import pdb
-    # pdb.set_trace()
+    import pdb
+    pdb.set_trace()
     # print("No of ops:", len(tf.get_default_graph().get_operations()))
     
     # Update dataset
@@ -142,47 +124,8 @@ for rollouts in range(3):
     pilco.mgpr.set_XY(X, Y)
 
 # Save the trained model
-model_save_path = "single_pendulum_pilco_model.pt"
+model_save_path = "saved_pilco_model.pt"
 torch.save(pilco.state_dict(), model_save_path)
 print(f"Saved PILCO model to: {model_save_path}")
 
-# Calculate total training time
-end_time = time.time()
-training_time = end_time - start_time
-hours, remainder = divmod(training_time, 3600)
-minutes, seconds = divmod(remainder, 60)
-print(f"Total training time: {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d} (HH:MM:SS)")
-print(f"Total training time in seconds: {training_time:.2f}s")
-
-# Create final comprehensive plot after all training iterations
-fig, axes = plt.subplots(state_dim, 1, figsize=(10, 12), sharex=True)
-state_labels = ['x position', 'x velocity', 'theta', 'angular velocity']
-
-# Plot data from final iteration
-final_m_p = all_m_p[-1]
-final_actual = all_actual[-1]
-final_S_p = S_p  # Uncertainty from final iteration
-
-# Ensure we're plotting with consistent dimensions
-actual_length = final_actual.shape[0]
-plot_length = min(T-1, actual_length)
-
-for i in range(state_dim):
-    axes[i].plot(range(plot_length), final_m_p[0:plot_length, i], 'b-', label='Predicted')
-    axes[i].plot(range(plot_length), final_actual[:plot_length, i], 'r--', label='Actual')
-    axes[i].fill_between(range(plot_length),
-                       final_m_p[0:plot_length, i] - 2*np.sqrt(final_S_p[0:plot_length, i, i]),
-                       final_m_p[0:plot_length, i] + 2*np.sqrt(final_S_p[0:plot_length, i, i]), 
-                       color='blue', alpha=0.2, label='95% Confidence')
-    axes[i].set_ylabel(state_labels[i])
-    axes[i].grid(True)
-    if i == 0:
-        axes[i].legend(loc='best')
-
-axes[-1].set_xlabel('Time Steps')
-fig.suptitle('PILCO Predictions vs Actual States (Final Iteration)', fontsize=16)
-plt.tight_layout()
-plt.savefig('pilco_pred_VS_actual.png', dpi=300)
-# plt.show()
-
-env.close()
+env.env.close()

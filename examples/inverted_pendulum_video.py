@@ -96,9 +96,6 @@ def load_trained_pilco(model_path):
     # Load model weights from saved file
     pilco_state_dict = torch.load(model_path)
     
-    # You'll need to create a placeholder PILCO object first
-    # This depends on how your PILCO model is structured and saved
-    
     # Example (modify to fit your saved model):
     X_dummy = np.zeros((10, 5))  # Placeholder data
     Y_dummy = np.zeros((10, 4))  # Placeholder data
@@ -108,7 +105,7 @@ def load_trained_pilco(model_path):
     controller = LinearController(state_dim=state_dim, control_dim=control_dim)
     
     # Create reward function
-    R = ExponentialReward(state_dim=state_dim, t=np.array([0.0, 0.0, 1.0, 0.0]))
+    R = ExponentialReward(state_dim=state_dim, t=np.array([0.0, 0.0, 0.0, 0.0]))
     
     # Create PILCO instance
     pilco = PILCO(X_dummy, Y_dummy, controller=controller, horizon=40, reward=R)
@@ -122,27 +119,12 @@ def main():
     # Create environment for recording 
     record_env = RecordingPendulum(video_name_prefix="inverted_pendulum_final")
     
-    # Option 1: Load a trained model
-    pilco = load_trained_pilco("path_to_saved_model.pt")
+    pilco = load_trained_pilco("single_pendulum_pilco_model.pt")
     
-    # # Option 2: Use a randomly initialized controller (useful to check if recording works)
-    # state_dim = 4  # For InvertedPendulum
-    # control_dim = 1
-    # controller = LinearController(state_dim=state_dim, control_dim=control_dim)
-    # X_dummy = np.zeros((10, state_dim + control_dim))
-    # Y_dummy = np.zeros((10, state_dim))
-    # pilco = PILCO(X_dummy, Y_dummy, controller=controller, horizon=40)
-    
-    # Record random policy
-    print("Recording random policy...")
-    X, Y = rollout(env=record_env, random=True, timesteps=200)
+    print("Recording trained policy...")
+    record_env = RecordingPendulum(video_name_prefix="inverted_pendulum_trained")
+    X, Y = rollout(env=record_env, pilco=pilco, timesteps=200)
     record_env.close()
-    
-    # If you have a trained model, record it too
-    # print("Recording trained policy...")
-    # record_env = RecordingPendulum(video_name_prefix="inverted_pendulum_trained")
-    # X, Y = rollout(env=record_env, pilco=pilco, timesteps=200)
-    # record_env.close()
     
     print(f"Videos saved to {video_dir}")
 
