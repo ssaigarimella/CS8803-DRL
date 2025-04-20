@@ -75,8 +75,8 @@ for i in range(1, 100):
 # states: dot_posistion [-1, 1], dot_velocity[-inf,inf], sin_theta[-1,1], cos_theta[-1,1], theta_velocity[-inf,inf]
 state_dim = Y.shape[1]
 control_dim = X.shape[1] - state_dim
-# controller1 = RbfController(state_dim=state_dim, control_dim=control_dim, num_basis_functions=5)
-controller = LinearController(state_dim=state_dim, control_dim=control_dim)
+controller1 = RbfController(state_dim=state_dim, control_dim=control_dim, num_basis_functions=5)
+# controller = LinearController(state_dim=state_dim, control_dim=control_dim)
 
 # pilco = PILCO(X, Y, controller1=controller1, horizon=40)
 # Example of user provided reward function, setting a custom target state
@@ -91,7 +91,7 @@ S_init = np.diag([0.01] * state_dim)
 m_init = torch.from_numpy(m_init).float().cuda()
 S_init = torch.from_numpy(S_init).float().cuda()
 
-pilco = PILCO(X, Y, controller=controller, horizon=40,
+pilco = PILCO(X, Y, controller=controller1, horizon=40,
               reward=R, m_init=m_init, S_init=S_init)
 
 # Example of fixing a parameter, optional, for a linear controller1 only
