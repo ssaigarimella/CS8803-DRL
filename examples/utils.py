@@ -1,6 +1,6 @@
 import numpy as np
 import sys
-sys.path.append("/home/song3/Research/PILCO-gpytorch")
+sys.path.append("/home/alicechan/gt/cs8803drl/PILCO-gpytorch")
 import pilco
 
 def rollout(env, pilco, timesteps, verbose=False, random=False, SUBS=1, render=True):

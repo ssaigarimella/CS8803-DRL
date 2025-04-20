@@ -1,4 +1,5 @@
 import gymnasium as gym
+from gymnasium.wrappers import RecordVideo
 import torch
 import matplotlib.pyplot as plt
 from pilco.rewards import ExponentialReward
@@ -8,6 +9,7 @@ from utils import rollout, policy
 import numpy as np
 import sys
 import time
+import os
 sys.path.append("/home/alicechan/gt/cs8803drl/PILCO-gpytorch")
 np.random.seed(0)
 
@@ -20,8 +22,9 @@ else:
     print("CUDA not available. Training on CPU.")
 
 class myPendulum():
-    def __init__(self, render_mode="human"):
+    def __init__(self, render_mode="rgb_array", video_folder="training_videos"):
         self.env = gym.make('InvertedPendulum-v5', render_mode=render_mode, reset_noise_scale=0.1, frame_skip=5)
+        self.env = RecordVideo(self.env, video_folder=video_folder, episode_trigger=lambda x: True, name_prefix="pendulum_training", video_length=200)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
         self.reset_called = False
@@ -40,12 +43,19 @@ class myPendulum():
     def render(self):
         if not self.reset_called:
             self.reset()
-        self.env.render()
+        return self.env.render()
 
     def close(self):
         self.env.close()
 
-env = myPendulum()
+    def enable_recording_mode(self):
+        self.recording_mode = True
+        
+    def disable_recording_mode(self):
+        self.recording_mode = False
+
+os.makedirs("training_videos", exist_ok=True)
+env = myPendulum(render_mode="rgb_array", video_folder="training_videos")
 # env = gym.make('CartPole-v0')
 # Initial random rollouts to generate a dataset
 # X, Y = rollout(env=env, pilco=None, random=True, timesteps=100)
@@ -56,7 +66,7 @@ X, Y = rollout(env=env, pilco=None, random=True, timesteps=100, render=False, SU
 '''
 change the range to higher number for longer training
 '''
-for i in range(1, 80):
+for i in range(1, 100):
     X_, Y_ = rollout(env=env, pilco=None, random=True,  timesteps=100)
     X = np.vstack((X, X_))
     Y = np.vstack((Y, Y_))
@@ -96,7 +106,7 @@ all_actual = []
 # start the timer
 start_time = time.time()
 
-for rollouts in range(3):
+for rollouts in range(20):
     pilco.optimize_models()
     pilco.optimize_policy()
 
@@ -108,22 +118,6 @@ for rollouts in range(3):
     for h in range(T):
         m_h, S_h, _ = pilco.predict(m_init, S_init, h)
         m_p[h,:], S_p[h,:,:] = m_h[0,:].detach().cpu().numpy(), S_h[:,:].detach().cpu().numpy()
-	
-
-    # for i in range(state_dim):    
-    #     plt.plot(range(T-1), m_p[0:T-1, i], X_new[1:T, i]) # can't use Y_new because it stores differences (Dx)
-    #     plt.fill_between(range(T-1),
-    #             m_p[0:T-1, i] - 2*np.sqrt(S_p[0:T-1, i, i]),
-    #             m_p[0:T-1, i] + 2*np.sqrt(S_p[0:T-1, i, i]), alpha=0.2)
-    #     plt.show()
-
-    # pred_outputs = pilco.mgpr.predict_y(X_new)
-    # for i in range(Y.shape[1]):
-    #     lower, upper = pred_outputs.confidence_region()
-    #     plt.plot(range(len(Y_new[:,i])), pred_outputs.mean[i].detach().cpu().numpy(),Y_new[:,i])
-    #     # plt.plot(range(len(Y[:,i])), Y[:,i],'ko')
-    #     plt.fill_between(range(len(Y_new[:,i])),lower[i].detach().cpu().numpy(),upper[i].detach().cpu().numpy(),alpha=0.3)
-    #     plt.show()
 
     all_m_p.append(m_p.copy())
     all_actual.append(X_new[1:T, :].copy())
@@ -131,15 +125,32 @@ for rollouts in range(3):
     print("=======================================")
     print(f"Iteration {rollouts+1} done")
     print("=======================================")
-
-    # for debugging
-    # import pdb
-    # pdb.set_trace()
-    # print("No of ops:", len(tf.get_default_graph().get_operations()))
     
     # Update dataset
     X = np.vstack((X, X_new)); Y = np.vstack((Y, Y_new))
     pilco.mgpr.set_XY(X, Y)
+
+
+def record_final_model(env, pilco, num_episodes=5, timesteps=200):
+    """Record videos of the final trained model, making sure it doesn't terminate early"""
+    os.makedirs("final_model_videos", exist_ok=True)
+    final_env = myPendulum(render_mode="rgb_array", video_folder="final_model_videos")
+    
+    for episode in range(num_episodes):
+        print(f"Recording episode {episode+1}/{num_episodes}...")
+        final_env.enable_recording_mode()  # Enable recording mode
+        x = final_env.reset()
+        
+        for t in range(timesteps):
+            u = policy(final_env, pilco, x, random=False)
+            x_new, _, done, _ = final_env.step(u)
+            final_env.render()
+            x = x_new
+        
+        final_env.disable_recording_mode()  # Disable after recording
+        
+    final_env.close()
+    print(f"Recorded {num_episodes} episodes in 'final_model_videos' folder")
 
 # Save the trained model
 model_save_path = "single_pendulum_pilco_model.pt"
@@ -184,5 +195,7 @@ fig.suptitle('PILCO Predictions vs Actual States (Final Iteration)', fontsize=16
 plt.tight_layout()
 plt.savefig('pilco_pred_VS_actual.png', dpi=300)
 # plt.show()
+
+record_final_model(env, pilco)
 
 env.close()
